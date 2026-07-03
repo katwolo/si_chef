@@ -337,6 +337,10 @@
       </div>
       <button id="nextWeek" aria-label="Semana siguiente">›</button>
     </div>
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <button class="btn btn-primary" id="randomWeekBtn" style="flex:1;">🎲 Semana aleatoria</button>
+      <button class="btn btn-ghost" id="shareWhatsappBtn" style="flex:1;">📲 Compartir</button>
+    </div>
     <div id="daysContainer"></div>
   </section>
 
@@ -556,6 +560,79 @@
       });
     });
   }
+
+  // ---------- SEMANA ALEATORIA ----------
+  function randomizeWeek(){
+    if(state.recipes.length === 0){ showToast('Añade recetas primero'); return; }
+    if(!confirm('Esto sustituirá el menú de esta semana. ¿Continuar?')) return;
+
+    const usage = {};
+    state.recipes.forEach(r => usage[r.id] = 0);
+    const newPlan = emptyPlan();
+
+    DAYS.forEach(day=>{
+      ['comida','cena'].forEach(meal=>{
+        const pool = recipeOptionsFor(meal);
+        if(pool.length === 0) return;
+        const minCount = Math.min(...pool.map(r => usage[r.id]));
+        const candidates = pool.filter(r => usage[r.id] === minCount);
+        const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+        newPlan[day][meal] = chosen.id;
+        usage[chosen.id]++;
+      });
+    });
+
+    state.weekPlan = newPlan;
+    renderDays();
+    renderShopping();
+    persistWholeWeekPlan();
+  }
+
+  async function persistWholeWeekPlan(){
+    const wid = weekId(state.weekStart);
+    const tasks = [];
+    DAYS.forEach(day=>{
+      ['comida','cena'].forEach(meal=>{
+        tasks.push(gasRun('setWeekPlanCell', wid, day, meal, state.weekPlan[day][meal]));
+      });
+    });
+    try{
+      await Promise.all(tasks);
+      showToast('Semana generada');
+    }catch(e){
+      showToast('Semana generada (algún fallo al guardar)');
+    }
+  }
+
+  document.getElementById('randomWeekBtn').addEventListener('click', randomizeWeek);
+
+  // ---------- COMPARTIR POR WHATSAPP ----------
+  function buildWeekText(){
+    const start = state.weekStart;
+    const end = addDays(start, 6);
+    const lines = [];
+    lines.push('🍽️ *Menú de la semana*');
+    lines.push(fmtShort(start) + ' – ' + fmtShort(end));
+    lines.push('');
+    DAYS.forEach((day, idx)=>{
+      const dayDate = addDays(state.weekStart, idx);
+      const comidaId = state.weekPlan[day] && state.weekPlan[day].comida;
+      const cenaId = state.weekPlan[day] && state.weekPlan[day].cena;
+      const comidaRecipe = comidaId ? state.recipes.find(r=>r.id===comidaId) : null;
+      const cenaRecipe = cenaId ? state.recipes.find(r=>r.id===cenaId) : null;
+      lines.push(`*${day}* (${fmtShort(dayDate)})`);
+      lines.push(`🍲 Comida: ${comidaRecipe ? comidaRecipe.name : '—'}`);
+      lines.push(`🌙 Cena: ${cenaRecipe ? cenaRecipe.name : '—'}`);
+      lines.push('');
+    });
+    return lines.join('\n');
+  }
+
+  document.getElementById('shareWhatsappBtn').addEventListener('click', ()=>{
+    const text = buildWeekText();
+    const url = 'https://wa.me/?text=' + encodeURIComponent(text);
+    window.open(url, '_blank');
+  });
 
   document.getElementById('prevWeek').addEventListener('click', async ()=>{
     state.weekStart = addDays(state.weekStart, -7);
