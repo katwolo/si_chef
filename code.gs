@@ -14,9 +14,52 @@
 var DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
 function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Menú de casa')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  var action = e.parameter && e.parameter.action;
+  if (!action) {
+    // Sin ?action=... en la URL: sirve la vista HTML directa (útil para probar desde script.google.com)
+    return HtmlService.createHtmlOutputFromFile('Index.html')
+      .setTitle('Menú de casa')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
+  try {
+    var result = routeAction_(action, e.parameter);
+    return jsonOutput_(result);
+  } catch (err) {
+    return jsonOutput_({ error: String(err) });
+  }
+}
+
+function doPost(e) {
+  try {
+    var body = JSON.parse(e.postData.contents);
+    var result = routeAction_(body.action, body.payload || {});
+    return jsonOutput_(result);
+  } catch (err) {
+    return jsonOutput_({ error: String(err) });
+  }
+}
+
+function jsonOutput_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// Punto único que traduce una "acción" (nombre + parámetros) a la función real.
+// Las funciones de negocio de abajo no cambian nada.
+function routeAction_(action, p) {
+  switch (action) {
+    case 'getRecipes': return getRecipes();
+    case 'saveRecipe': return saveRecipe(p.recipe);
+    case 'deleteRecipeById': return deleteRecipeById(p.id);
+    case 'getWeekPlan': return getWeekPlan(p.weekId);
+    case 'setWeekPlanCell': return setWeekPlanCell(p.weekId, p.dia, p.meal, p.recipeId);
+    case 'getShoppingExtras': return getShoppingExtras(p.weekId);
+    case 'addShoppingExtra': return addShoppingExtra(p.weekId, p.item);
+    case 'deleteShoppingExtra': return deleteShoppingExtra(p.weekId, p.extraId);
+    case 'getShoppingChecked': return getShoppingChecked(p.weekId);
+    case 'setShoppingChecked': return setShoppingChecked(p.weekId, p.itemKey, p.value);
+    case 'clearShoppingChecked': return clearShoppingChecked(p.weekId);
+    default: throw new Error('Acción desconocida: ' + action);
+  }
 }
 
 // ---------- utilidades de hoja ----------
@@ -36,6 +79,9 @@ function getSheet_(name, headers) {
     sh = ss.insertSheet(name);
     sh.appendRow(headers);
     sh.setFrozenRows(1);
+    if (headers[0] === 'weekId') {
+      sh.getRange(2, 1, sh.getMaxRows() - 1, 1).setNumberFormat('@');
+    }
   }
   return sh;
 }
@@ -61,6 +107,16 @@ function withLock_(fn) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// Google Sheets a veces convierte automáticamente un texto tipo "2026-07-06"
+// en una celda de tipo Fecha. Esta función deja el weekId siempre en el mismo
+// formato de texto (yyyy-MM-dd), venga la celda como texto o como Fecha.
+function normalizeWeekId_(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return String(value);
 }
 
 // ---------- RECETAS ----------
@@ -109,7 +165,7 @@ function deleteRecipeById(id) {
 
 function getWeekPlan(weekId) {
   var sh = getSheet_('PlanSemanal', ['weekId', 'dia', 'comidaId', 'cenaId']);
-  var rows = sheetToObjects_(sh).filter(function (o) { return String(o.weekId) === String(weekId); });
+  var rows = sheetToObjects_(sh).filter(function (o) { return normalizeWeekId_(o.weekId) === String(weekId); });
   var plan = {};
   DIAS.forEach(function (d) { plan[d] = { comida: null, cena: null }; });
   rows.forEach(function (r) {
@@ -127,7 +183,7 @@ function setWeekPlanCell(weekId, dia, meal, recipeId) {
     var data = sh.getDataRange().getValues();
     var rowIndex = -1;
     for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === String(weekId) && data[i][1] === dia) { rowIndex = i + 1; break; }
+      if (normalizeWeekId_(data[i][0]) === String(weekId) && data[i][1] === dia) { rowIndex = i + 1; break; }
     }
     if (rowIndex === -1) {
       var newRow = [weekId, dia, meal === 'comida' ? (recipeId || '') : '', meal === 'cena' ? (recipeId || '') : ''];
@@ -146,7 +202,7 @@ function setWeekPlanCell(weekId, dia, meal, recipeId) {
 function getShoppingExtras(weekId) {
   var sh = getSheet_('ListaExtra', ['weekId', 'id', 'nombre', 'cantidad', 'unidad', 'categoria']);
   return sheetToObjects_(sh)
-    .filter(function (o) { return String(o.weekId) === String(weekId); })
+    .filter(function (o) { return normalizeWeekId_(o.weekId) === String(weekId); })
     .map(function (o) { return { id: String(o.id), name: o.nombre, qty: o.cantidad, unit: o.unidad, cat: o.categoria }; });
 }
 
@@ -163,7 +219,7 @@ function deleteShoppingExtra(weekId, extraId) {
     var sh = getSheet_('ListaExtra', ['weekId', 'id', 'nombre', 'cantidad', 'unidad', 'categoria']);
     var data = sh.getDataRange().getValues();
     for (var i = data.length - 1; i >= 1; i--) {
-      if (String(data[i][0]) === String(weekId) && String(data[i][1]) === String(extraId)) sh.deleteRow(i + 1);
+      if (normalizeWeekId_(data[i][0]) === String(weekId) && String(data[i][1]) === String(extraId)) sh.deleteRow(i + 1);
     }
     return true;
   });
@@ -174,7 +230,7 @@ function deleteShoppingExtra(weekId, extraId) {
 
 function getShoppingChecked(weekId) {
   var sh = getSheet_('ListaMarcados', ['weekId', 'itemKey', 'marcado']);
-  var rows = sheetToObjects_(sh).filter(function (o) { return String(o.weekId) === String(weekId); });
+  var rows = sheetToObjects_(sh).filter(function (o) { return normalizeWeekId_(o.weekId) === String(weekId); });
   var map = {};
   rows.forEach(function (r) { map[r.itemKey] = (r.marcado === true || r.marcado === 'TRUE' || r.marcado === 'true'); });
   return map;
@@ -186,7 +242,7 @@ function setShoppingChecked(weekId, itemKey, value) {
     var data = sh.getDataRange().getValues();
     var rowIndex = -1;
     for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === String(weekId) && data[i][1] === itemKey) { rowIndex = i + 1; break; }
+      if (normalizeWeekId_(data[i][0]) === String(weekId) && data[i][1] === itemKey) { rowIndex = i + 1; break; }
     }
     if (rowIndex === -1) {
       sh.appendRow([weekId, itemKey, value]);
@@ -202,7 +258,7 @@ function clearShoppingChecked(weekId) {
     var sh = getSheet_('ListaMarcados', ['weekId', 'itemKey', 'marcado']);
     var data = sh.getDataRange().getValues();
     for (var i = data.length - 1; i >= 1; i--) {
-      if (String(data[i][0]) === String(weekId)) sh.deleteRow(i + 1);
+      if (normalizeWeekId_(data[i][0]) === String(weekId)) sh.deleteRow(i + 1);
     }
     return true;
   });
