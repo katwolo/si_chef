@@ -443,14 +443,64 @@
     showToast._t = setTimeout(()=>t.classList.remove('show'), 1600);
   }
 
-  // Puente estándar frontend -> backend de Apps Script (Code.gs)
-  function gasRun(fnName, ...args){
-    return new Promise((resolve, reject) => {
-      google.script.run
-        .withSuccessHandler(resolve)
-        .withFailureHandler((err) => { console.error(fnName, err); reject(err); })
-        [fnName](...args);
+  // ---------- API: puente frontend -> backend ----------
+  // API_URL: pega aquí la URL /exec que te da Apps Script al desplegar.
+  // Mientras esté vacío, la app avisa en vez de fallar en silencio.
+  const API_URL = 'PEGA_AQUI_TU_URL_DE_EXEC';
+
+  function apiGet(action, params){
+    const url = new URL(API_URL);
+    url.searchParams.set('action', action);
+    Object.keys(params || {}).forEach(k => {
+      if(params[k] !== undefined && params[k] !== null) url.searchParams.set(k, params[k]);
     });
+    return fetch(url.toString())
+      .then(r => r.json())
+      .then(data => { if(data && data.error) throw new Error(data.error); return data; });
+  }
+
+  function apiPost(action, payload){
+    return fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita el preflight CORS
+      body: JSON.stringify({ action, payload })
+    })
+      .then(r => r.json())
+      .then(data => { if(data && data.error) throw new Error(data.error); return data; });
+  }
+
+  // Mismo nombre y forma de llamada que antes (gasRun('funcion', ...args)):
+  // así ningún punto del resto del código ha tenido que cambiar.
+  function gasRun(fnName, ...args){
+    if(API_URL === 'PEGA_AQUI_TU_URL_DE_EXEC'){
+      return Promise.reject(new Error('Falta configurar API_URL en Index.html con tu URL de Apps Script (.../exec)'));
+    }
+    switch(fnName){
+      case 'getRecipes':
+        return apiGet('getRecipes', {});
+      case 'getWeekPlan':
+        return apiGet('getWeekPlan', { weekId: args[0] });
+      case 'getShoppingExtras':
+        return apiGet('getShoppingExtras', { weekId: args[0] });
+      case 'getShoppingChecked':
+        return apiGet('getShoppingChecked', { weekId: args[0] });
+      case 'saveRecipe':
+        return apiPost('saveRecipe', { recipe: args[0] });
+      case 'deleteRecipeById':
+        return apiPost('deleteRecipeById', { id: args[0] });
+      case 'setWeekPlanCell':
+        return apiPost('setWeekPlanCell', { weekId: args[0], dia: args[1], meal: args[2], recipeId: args[3] });
+      case 'addShoppingExtra':
+        return apiPost('addShoppingExtra', { weekId: args[0], item: args[1] });
+      case 'deleteShoppingExtra':
+        return apiPost('deleteShoppingExtra', { weekId: args[0], extraId: args[1] });
+      case 'setShoppingChecked':
+        return apiPost('setShoppingChecked', { weekId: args[0], itemKey: args[1], value: args[2] });
+      case 'clearShoppingChecked':
+        return apiPost('clearShoppingChecked', { weekId: args[0] });
+      default:
+        return Promise.reject(new Error('Acción no soportada: ' + fnName));
+    }
   }
 
   function emptyPlan(){
@@ -466,7 +516,7 @@
       await loadWeekData();
       renderAll();
     }catch(e){
-      document.getElementById('loading').innerHTML = '<div>No se ha podido conectar con la hoja de cálculo.<br>Revisa la propiedad SPREADSHEET_ID en el script.</div>';
+      document.getElementById('loading').innerHTML = '<div>No se ha podido conectar con la hoja de cálculo.<br>' + (e && e.message ? e.message : '') + '</div>';
       return;
     }
     document.getElementById('loading').style.display = 'none';
@@ -923,6 +973,88 @@
 
   init();
 })();
+
+/* ==========================================================
+   Firma de autoría — Easter egg genérico (reutilizable)
+   Se activa escribiendo tu código secreto en cualquier parte
+   de la página, SIEMPRE que el foco no esté en un campo de
+   texto, textarea o elemento editable.
+   ========================================================== */
+
+(function () {
+  // 👉 Cambia esto por tu código secreto (ej. tu DNI, sin espacios ni letra en mayúscula/minúscula específica)
+  const SECRET_CODE = '05072024';
+
+  // 👉 Cambia estos datos por los tuyos / los del proyecto
+  const OWNER_NAME = 'Iván Bustos';
+  const PROJECT_NAME = document.title || 'Proyecto';
+
+  const codeChars = SECRET_CODE.toLowerCase().split('');
+  let buffer = [];
+
+  function isTypingField(el) {
+    if (!el) return false;
+    const tag = el.tagName ? el.tagName.toLowerCase() : '';
+    return (
+      tag === 'input' ||
+      tag === 'textarea' ||
+      tag === 'select' ||
+      el.isContentEditable
+    );
+  }
+
+  document.addEventListener('keydown', (e) => {
+    // Si el foco está en un campo de escritura, no activamos el listener
+    if (isTypingField(document.activeElement)) {
+      buffer = [];
+      return;
+    }
+
+    if (e.key.length !== 1) return; // ignora teclas especiales (flechas, shift, etc.)
+
+    buffer.push(e.key.toLowerCase());
+    buffer = buffer.slice(-codeChars.length);
+
+    if (buffer.join('') === codeChars.join('')) {
+      showSignature();
+      buffer = [];
+    }
+  });
+
+  function showSignature() {
+    if (document.getElementById('authorship-signature-modal')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'authorship-signature-modal';
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.88); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 999999; font-family: 'Courier New', monospace;
+      text-align: center; animation: authorship-fade-in 0.25s ease-out;
+    `;
+
+    overlay.innerHTML = `
+      <style>
+        @keyframes authorship-fade-in { from { opacity: 0; } to { opacity: 1; } }
+      </style>
+      <div>
+        <h2 style="margin:0 0 8px;font-size:1.6em;letter-spacing:2px;">${PROJECT_NAME}</h2>
+        <p style="margin:4px 0;opacity:0.85;">Proyecto original creado por ${OWNER_NAME}</p>
+        <p style="margin:4px 0;opacity:0.6;font-size:0.85em;">
+          Ref: ${btoa(OWNER_NAME + '-' + PROJECT_NAME).slice(0, 12)}
+        </p>
+        <p style="margin-top:24px;cursor:pointer;opacity:0.5;font-size:0.85em;"
+           onclick="document.getElementById('authorship-signature-modal').remove()">
+          ✕ cerrar
+        </p>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+  }
+})();
+
 </script>
 </body>
 </html>
