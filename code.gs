@@ -17,7 +17,7 @@ function doGet(e) {
   var action = e.parameter && e.parameter.action;
   if (!action) {
     // Sin ?action=... en la URL: sirve la vista HTML directa (útil para probar desde script.google.com)
-    return HtmlService.createHtmlOutputFromFile('Index.html')
+    return HtmlService.createHtmlOutputFromFile('index.html')
       .setTitle('Menú de casa')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   }
