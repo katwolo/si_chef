@@ -564,7 +564,9 @@
   }
 
   function recipeOptionsFor(mealType){
-    return state.recipes.filter(r => r.meal === mealType || r.meal === 'ambas');
+    return state.recipes
+      .filter(r => r.meal === mealType || r.meal === 'ambas')
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'));
   }
 
   function renderDays(){
@@ -681,7 +683,7 @@
   document.getElementById('shareWhatsappBtn').addEventListener('click', ()=>{
     const text = buildWeekText();
     const url = 'https://wa.me/?text=' + encodeURIComponent(text);
-    window.open(url, '_blank');
+    window.location.href = url;
   });
 
   document.getElementById('prevWeek').addEventListener('click', async ()=>{
