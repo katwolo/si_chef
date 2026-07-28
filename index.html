@@ -338,10 +338,11 @@
       </div>
       <button id="nextWeek" aria-label="Semana siguiente">›</button>
     </div>
-    <div style="display:flex; gap:8px; margin-bottom:14px;">
+    <div style="display:flex; gap:8px; margin-bottom:8px;">
       <button class="btn btn-primary" id="randomWeekBtn" style="flex:1;">🎲 Semana aleatoria</button>
       <a class="btn btn-ghost" id="shareWhatsappBtn" href="https://wa.me/" style="flex:1;">📲 Compartir</a>
     </div>
+    <button class="btn btn-ghost btn-sm btn-block" id="copyMenuBtn" style="margin-bottom:14px;">📋 Copiar menú (si WhatsApp no se abre)</button>
     <div id="daysContainer"></div>
   </section>
 
@@ -690,6 +691,31 @@
   document.getElementById('shareWhatsappBtn').addEventListener('click', (e)=>{
     const text = buildWeekText();
     e.currentTarget.href = 'https://wa.me/?text=' + encodeURIComponent(text);
+  });
+
+  // Red de seguridad: en algunos móviles el traspaso a la app de WhatsApp
+  // falla de forma intermitente (Android la cierra y vuelve a Chrome solo).
+  // Copiar el texto permite pegarlo a mano si eso pasa.
+  document.getElementById('copyMenuBtn').addEventListener('click', async ()=>{
+    const text = buildWeekText();
+    try{
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      showToast('Menú copiado, pégalo en WhatsApp');
+    }catch(e){
+      showToast('No se ha podido copiar');
+    }
   });
 
   document.getElementById('prevWeek').addEventListener('click', async ()=>{
