@@ -483,10 +483,9 @@
       if(Array.isArray(r)) state.recipes = r;
     }catch(e){}
     state.gsUrl = localStorage.getItem(CACHE_URL) || DEFAULT_GS_URL;
-    const lastWeek = localStorage.getItem(CACHE_LASTWEEK);
-    if(lastWeek){
-      state.weekStart = getMonday(new Date(lastWeek + 'T12:00:00'));
-    }
+    // state.weekStart ya se inicializó con la semana actual (getMonday(new Date())).
+    // Ya no se sobrescribe con la última semana vista, para que la app siempre
+    // abra mostrando la semana en curso.
   }
 
   function getWeeksCache(){
