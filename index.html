@@ -522,8 +522,8 @@
       renderAll();
     }catch(e){
       const loading = document.getElementById('loading');
-      loading.innerHTML = '<div>No se ha podido conectar con la hoja de cálculo.<br>' + (e && e.message ? e.message : '') + '</div>'
-        + '<button class="btn btn-primary" id="retryInitBtn" style="margin-top:14px;">Reintentar</button>';
+      loading.innerHTML = '<div style="text-align:center;">No se ha podido conectar con la hoja de cálculo.<br>' + (e && e.message ? e.message : '') + '</div>'
+        + '<button class="btn btn-primary" id="retryInitBtn" style="display:block; margin:14px auto 0;">Reintentar</button>';
       document.getElementById('retryInitBtn').addEventListener('click', ()=>{
         loading.innerHTML = '<div>Cargando tu menú…</div>';
         init();
