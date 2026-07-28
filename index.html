@@ -338,11 +338,10 @@
       </div>
       <button id="nextWeek" aria-label="Semana siguiente">›</button>
     </div>
-    <div style="display:flex; gap:8px; margin-bottom:8px;">
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
       <button class="btn btn-primary" id="randomWeekBtn" style="flex:1;">🎲 Semana aleatoria</button>
-      <a class="btn btn-ghost" id="shareWhatsappBtn" href="https://wa.me/" style="flex:1;">📲 Compartir</a>
+      <button class="btn btn-ghost" id="copyMenuBtn" style="flex:1;">📋 Copiar menú</button>
     </div>
-    <button class="btn btn-ghost btn-sm btn-block" id="copyMenuBtn" style="margin-bottom:14px;">📋 Copiar menú (si WhatsApp no se abre)</button>
     <div id="daysContainer"></div>
   </section>
 
@@ -686,22 +685,6 @@
     return lines.join('\n');
   }
 
-  // En Chrome/Android, navegar a wa.me disparado desde código (window.open,
-  // un <a> creado y "clicado" por JS, o window.location.href asignado desde
-  // un manejador) no se trata como una navegación de confianza total: Chrome
-  // carga la propia página de wa.me en vez de abrir la app directamente, y
-  // esa página a veces te devuelve solo al sitio de origen. Por eso el link
-  // es un <a> real y presente en el HTML desde el principio — solo
-  // actualizamos su href justo antes de que el navegador procese el toque
-  // nativo del usuario, para que cuente como una navegación genuina.
-  document.getElementById('shareWhatsappBtn').addEventListener('click', (e)=>{
-    const text = buildWeekText();
-    e.currentTarget.href = 'https://wa.me/?text=' + encodeURIComponent(text);
-  });
-
-  // Red de seguridad: en algunos móviles el traspaso a la app de WhatsApp
-  // falla de forma intermitente (Android la cierra y vuelve a Chrome solo).
-  // Copiar el texto permite pegarlo a mano si eso pasa.
   document.getElementById('copyMenuBtn').addEventListener('click', async ()=>{
     const text = buildWeekText();
     try{
