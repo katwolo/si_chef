@@ -338,10 +338,11 @@
       </div>
       <button id="nextWeek" aria-label="Semana siguiente">›</button>
     </div>
-    <div style="display:flex; gap:8px; margin-bottom:14px;">
+    <div style="display:flex; gap:8px; margin-bottom:8px;">
       <button class="btn btn-primary" id="randomWeekBtn" style="flex:1;">🎲 Semana aleatoria</button>
-      <button class="btn btn-ghost" id="copyMenuBtn" style="flex:1;">📋 Copiar menú</button>
+      <a class="btn btn-ghost" id="shareWhatsappBtn" href="https://wa.me/" style="flex:1;">📲 Compartir</a>
     </div>
+    <button class="btn btn-ghost btn-sm btn-block" id="copyMenuBtn" style="margin-bottom:14px;">📋 Copiar menú (si WhatsApp no se abre)</button>
     <div id="daysContainer"></div>
   </section>
 
@@ -445,65 +446,16 @@
   }
 
   // ---------- API: puente frontend -> backend ----------
-  // API_URL: pega aquí la URL /exec que te da Apps Script al desplegar.
-  // Mientras esté vacío, la app avisa en vez de fallar en silencio.
-  const API_URL = 'https://script.google.com/macros/s/AKfycby77gY2SQSHOciA3r9i625oCbOha3eG1MweXzTsJTEmSKatj-HlkXpA5CaeCGBo8Q0l/exec';
-
-  function apiGet(action, params){
-    const url = new URL(API_URL);
-    url.searchParams.set('action', action);
-    Object.keys(params || {}).forEach(k => {
-      if(params[k] !== undefined && params[k] !== null) url.searchParams.set(k, params[k]);
-    });
-    return fetch(url.toString())
-      .then(r => r.json())
-      .then(data => { if(data && data.error) throw new Error(data.error); return data; });
-  }
-
-  function apiPost(action, payload){
-    return fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita el preflight CORS
-      body: JSON.stringify({ action, payload })
-    })
-      .then(r => r.json())
-      .then(data => { if(data && data.error) throw new Error(data.error); return data; });
-  }
-
-  // Mismo nombre y forma de llamada que antes (gasRun('funcion', ...args)):
-  // así ningún punto del resto del código ha tenido que cambiar.
+  // La app se sirve desde la URL /exec de Apps Script, así que hablamos con
+  // Code.gs con su puente nativo (google.script.run): mismo origen, sin
+  // CORS ni llamadas anónimas de por medio. Los nombres y el orden de los
+  // argumentos coinciden exactamente con las funciones de Code.gs.
   function gasRun(fnName, ...args){
-    if(API_URL === 'PEGA_AQUI_TU_URL_DE_EXEC'){
-      return Promise.reject(new Error('Falta configurar API_URL en Index.html con tu URL de Apps Script (.../exec)'));
-    }
-    switch(fnName){
-      case 'getRecipes':
-        return apiGet('getRecipes', {});
-      case 'getWeekPlan':
-        return apiGet('getWeekPlan', { weekId: args[0] });
-      case 'getShoppingExtras':
-        return apiGet('getShoppingExtras', { weekId: args[0] });
-      case 'getShoppingChecked':
-        return apiGet('getShoppingChecked', { weekId: args[0] });
-      case 'saveRecipe':
-        return apiPost('saveRecipe', { recipe: args[0] });
-      case 'deleteRecipeById':
-        return apiPost('deleteRecipeById', { id: args[0] });
-      case 'setWeekPlanCell':
-        return apiPost('setWeekPlanCell', { weekId: args[0], dia: args[1], meal: args[2], recipeId: args[3] });
-      case 'setWeekPlan':
-        return apiPost('setWeekPlan', { weekId: args[0], plan: args[1] });
-      case 'addShoppingExtra':
-        return apiPost('addShoppingExtra', { weekId: args[0], item: args[1] });
-      case 'deleteShoppingExtra':
-        return apiPost('deleteShoppingExtra', { weekId: args[0], extraId: args[1] });
-      case 'setShoppingChecked':
-        return apiPost('setShoppingChecked', { weekId: args[0], itemKey: args[1], value: args[2] });
-      case 'clearShoppingChecked':
-        return apiPost('clearShoppingChecked', { weekId: args[0] });
-      default:
-        return Promise.reject(new Error('Acción no soportada: ' + fnName));
-    }
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)[fnName](...args);
+    });
   }
 
   function emptyPlan(){
@@ -684,6 +636,15 @@
     });
     return lines.join('\n');
   }
+
+  // Enlace real presente en el HTML desde el principio: solo actualizamos su
+  // href justo antes de que el navegador procese el toque nativo del
+  // usuario, para que la navegación cuente como genuina (no disparada por
+  // JS), que es lo que ha demostrado ser fiable para el traspaso a WhatsApp.
+  document.getElementById('shareWhatsappBtn').addEventListener('click', (e)=>{
+    const text = buildWeekText();
+    e.currentTarget.href = 'https://wa.me/?text=' + encodeURIComponent(text);
+  });
 
   document.getElementById('copyMenuBtn').addEventListener('click', async ()=>{
     const text = buildWeekText();
