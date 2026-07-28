@@ -165,6 +165,7 @@
     border-radius:10px;
     border:1px solid transparent;
     cursor:pointer;
+    text-decoration:none;
   }
   .btn-primary{ background:var(--pine); color:var(--paper); }
   .btn-primary:hover{ background:var(--pine-light); }
@@ -339,7 +340,7 @@
     </div>
     <div style="display:flex; gap:8px; margin-bottom:14px;">
       <button class="btn btn-primary" id="randomWeekBtn" style="flex:1;">🎲 Semana aleatoria</button>
-      <button class="btn btn-ghost" id="shareWhatsappBtn" style="flex:1;">📲 Compartir</button>
+      <a class="btn btn-ghost" id="shareWhatsappBtn" href="https://wa.me/" style="flex:1;">📲 Compartir</a>
     </div>
     <div id="daysContainer"></div>
   </section>
@@ -678,14 +679,17 @@
     return lines.join('\n');
   }
 
-  document.getElementById('shareWhatsappBtn').addEventListener('click', ()=>{
+  // En Chrome/Android, navegar a wa.me disparado desde código (window.open,
+  // un <a> creado y "clicado" por JS, o window.location.href asignado desde
+  // un manejador) no se trata como una navegación de confianza total: Chrome
+  // carga la propia página de wa.me en vez de abrir la app directamente, y
+  // esa página a veces te devuelve solo al sitio de origen. Por eso el link
+  // es un <a> real y presente en el HTML desde el principio — solo
+  // actualizamos su href justo antes de que el navegador procese el toque
+  // nativo del usuario, para que cuente como una navegación genuina.
+  document.getElementById('shareWhatsappBtn').addEventListener('click', (e)=>{
     const text = buildWeekText();
-    const url = 'https://wa.me/?text=' + encodeURIComponent(text);
-    // En Chrome/Android, abrir wa.me en una pestaña/ventana nueva (window.open,
-    // o un <a target="_blank">) no completa el traspaso a la app de WhatsApp:
-    // la pestaña se abre y se cierra sola. Navegar en la misma pestaña sí
-    // funciona de forma fiable.
-    window.location.href = url;
+    e.currentTarget.href = 'https://wa.me/?text=' + encodeURIComponent(text);
   });
 
   document.getElementById('prevWeek').addEventListener('click', async ()=>{
