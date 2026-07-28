@@ -490,6 +490,8 @@
         return apiPost('deleteRecipeById', { id: args[0] });
       case 'setWeekPlanCell':
         return apiPost('setWeekPlanCell', { weekId: args[0], dia: args[1], meal: args[2], recipeId: args[3] });
+      case 'setWeekPlan':
+        return apiPost('setWeekPlan', { weekId: args[0], plan: args[1] });
       case 'addShoppingExtra':
         return apiPost('addShoppingExtra', { weekId: args[0], item: args[1] });
       case 'deleteShoppingExtra':
@@ -512,8 +514,10 @@
   // ---------- init ----------
   async function init(){
     try{
-      state.recipes = await gasRun('getRecipes');
-      await loadWeekData();
+      await Promise.all([
+        gasRun('getRecipes').then(r => { state.recipes = r; }),
+        loadWeekData()
+      ]);
       renderAll();
     }catch(e){
       document.getElementById('loading').innerHTML = '<div>No se ha podido conectar con la hoja de cálculo.<br>' + (e && e.message ? e.message : '') + '</div>';
@@ -642,14 +646,8 @@
 
   async function persistWholeWeekPlan(){
     const wid = weekId(state.weekStart);
-    const tasks = [];
-    DAYS.forEach(day=>{
-      ['comida','cena'].forEach(meal=>{
-        tasks.push(gasRun('setWeekPlanCell', wid, day, meal, state.weekPlan[day][meal]));
-      });
-    });
     try{
-      await Promise.all(tasks);
+      await gasRun('setWeekPlan', wid, state.weekPlan);
       showToast('Semana generada');
     }catch(e){
       showToast('Semana generada (algún fallo al guardar)');

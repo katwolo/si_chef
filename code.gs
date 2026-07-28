@@ -52,6 +52,7 @@ function routeAction_(action, p) {
     case 'deleteRecipeById': return deleteRecipeById(p.id);
     case 'getWeekPlan': return getWeekPlan(p.weekId);
     case 'setWeekPlanCell': return setWeekPlanCell(p.weekId, p.dia, p.meal, p.recipeId);
+    case 'setWeekPlan': return setWeekPlan(p.weekId, p.plan);
     case 'getShoppingExtras': return getShoppingExtras(p.weekId);
     case 'addShoppingExtra': return addShoppingExtra(p.weekId, p.item);
     case 'deleteShoppingExtra': return deleteShoppingExtra(p.weekId, p.extraId);
@@ -191,6 +192,38 @@ function setWeekPlanCell(weekId, dia, meal, recipeId) {
     } else {
       var col = meal === 'comida' ? 3 : 4;
       sh.getRange(rowIndex, col).setValue(recipeId || '');
+    }
+    return true;
+  });
+}
+
+// Guarda el plan de una semana completa (7 días x comida/cena) en una sola
+// operación: un único bloqueo, una única lectura de la hoja y como mucho un
+// puñado de escrituras, en vez de 14 llamadas independientes a setWeekPlanCell.
+function setWeekPlan(weekId, plan) {
+  return withLock_(function () {
+    var sh = getSheet_('PlanSemanal', ['weekId', 'dia', 'comidaId', 'cenaId']);
+    var data = sh.getDataRange().getValues();
+    var rowIndexByDia = {};
+    for (var i = 1; i < data.length; i++) {
+      if (normalizeWeekId_(data[i][0]) === String(weekId)) {
+        rowIndexByDia[data[i][1]] = i + 1;
+      }
+    }
+    var newRows = [];
+    DIAS.forEach(function (dia) {
+      var entry = (plan && plan[dia]) || {};
+      var comidaId = entry.comida || '';
+      var cenaId = entry.cena || '';
+      var rowIndex = rowIndexByDia[dia];
+      if (rowIndex) {
+        sh.getRange(rowIndex, 3, 1, 2).setValues([[comidaId, cenaId]]);
+      } else {
+        newRows.push([weekId, dia, comidaId, cenaId]);
+      }
+    });
+    if (newRows.length) {
+      sh.getRange(sh.getLastRow() + 1, 1, newRows.length, 4).setValues(newRows);
     }
     return true;
   });
