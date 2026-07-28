@@ -681,16 +681,11 @@
   document.getElementById('shareWhatsappBtn').addEventListener('click', ()=>{
     const text = buildWeekText();
     const url = 'https://wa.me/?text=' + encodeURIComponent(text);
-    // En Chrome/Android, window.open() a veces no completa el traspaso a la
-    // app de WhatsApp (la pestaña se abre y se cierra sola). Simular el clic
-    // en un enlace real es más fiable para ese traspaso.
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    // En Chrome/Android, abrir wa.me en una pestaña/ventana nueva (window.open,
+    // o un <a target="_blank">) no completa el traspaso a la app de WhatsApp:
+    // la pestaña se abre y se cierra sola. Navegar en la misma pestaña sí
+    // funciona de forma fiable.
+    window.location.href = url;
   });
 
   document.getElementById('prevWeek').addEventListener('click', async ()=>{
