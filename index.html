@@ -305,6 +305,28 @@
   }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(-4px); }
 
+  .settings-btn{
+    position:absolute; top:18px; right:16px;
+    background:rgba(255,255,255,.12); border:none; border-radius:10px;
+    width:34px; height:34px; font-size:16px; cursor:pointer; color:var(--paper);
+  }
+  .settings-btn:hover{ background:rgba(255,255,255,.2); }
+
+  .modal-overlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+    align-items:center; justify-content:center; z-index:200; padding:20px;
+  }
+  .modal-overlay.active{ display:flex; }
+  .modal-overlay .modal{
+    background:var(--card); border-radius:16px; padding:20px; width:100%; max-width:360px;
+    box-shadow:0 12px 40px rgba(0,0,0,.25);
+  }
+  .modal-overlay .modal h3{ font-size:18px; color:var(--pine); margin-bottom:6px; }
+  .modal-hint{ font-size:12.5px; color:var(--ink-soft); margin-bottom:14px; line-height:1.5; }
+  .test-result{ font-size:12.5px; padding:8px 10px; border-radius:8px; margin-bottom:10px; }
+  .test-result.ok{ background:#E8EFE6; color:var(--pine); }
+  .test-result.err{ background:var(--red-soft); color:var(--red); }
+
   @media (max-width:400px){
     .ing-row{ grid-template-columns: 1fr 1fr; }
     .ing-row .cat-select{ grid-column: span 2; }
@@ -316,6 +338,7 @@
 <div id="loading" class="loading-overlay"><div>Cargando tu menú…</div></div>
 
 <header class="app-header">
+  <button id="settingsBtn" class="settings-btn" aria-label="Ajustes" title="Ajustes">⚙️</button>
   <div class="eyebrow">Cocina de casa · 2 adultos + 1 peque</div>
   <h1>Menú semanal</h1>
   <div class="sub">Planifica, cocina y compra sin sorpresas</div>
@@ -405,6 +428,25 @@
 
 <div class="toast" id="toast"></div>
 
+<div class="modal-overlay" id="settingsOverlay">
+  <div class="modal">
+    <h3>Ajustes</h3>
+    <p class="modal-hint">URL de Apps Script (termina en <code>/exec</code>) para sincronizar con tu Google Sheet.</p>
+    <div class="field">
+      <label for="gsUrlInput">URL del Apps Script</label>
+      <input type="text" id="gsUrlInput" placeholder="https://script.google.com/macros/s/…/exec">
+    </div>
+    <div id="gsTestResult" class="test-result" style="display:none;"></div>
+    <div class="form-actions">
+      <button class="btn btn-ghost btn-block" id="gsTestBtn">Probar conexión</button>
+    </div>
+    <div class="form-actions" style="margin-top:8px;">
+      <button class="btn btn-ghost" id="gsCancelBtn" style="flex:1;">Cancelar</button>
+      <button class="btn btn-primary" id="gsSaveBtn" style="flex:1;">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
@@ -418,10 +460,55 @@
     weekStart: getMonday(new Date()),
     weekPlan: {},      // { Lunes: {comida: id|null, cena: id|null}, ... }
     extras: [],         // [{id,name,qty,unit,cat}]
-    checked: {}         // { key: bool }
+    checked: {},        // { key: bool }
+    gsUrl: ''
   };
   let editingRecipeId = null;
   let ingRowCount = 0;
+
+  // URL de Apps Script que ya funciona hoy: sirve como valor por defecto la
+  // primera vez que se abre la app en un dispositivo, antes de que el
+  // usuario configure nada en Ajustes.
+  const DEFAULT_GS_URL = 'https://script.google.com/macros/s/AKfycby77gY2SQSHOciA3r9i625oCbOha3eG1MweXzTsJTEmSKatj-HlkXpA5CaeCGBo8Q0l/exec';
+
+  // ---------- caché local ----------
+  const CACHE_RECIPES = 'sc_recipes';
+  const CACHE_WEEKS = 'sc_weeks';
+  const CACHE_URL = 'sc_gs';
+  const CACHE_LASTWEEK = 'sc_lastWeek';
+
+  function loadCache(){
+    try{
+      const r = JSON.parse(localStorage.getItem(CACHE_RECIPES));
+      if(Array.isArray(r)) state.recipes = r;
+    }catch(e){}
+    state.gsUrl = localStorage.getItem(CACHE_URL) || DEFAULT_GS_URL;
+    const lastWeek = localStorage.getItem(CACHE_LASTWEEK);
+    if(lastWeek){
+      state.weekStart = getMonday(new Date(lastWeek + 'T12:00:00'));
+    }
+  }
+
+  function getWeeksCache(){
+    try{ return JSON.parse(localStorage.getItem(CACHE_WEEKS)) || {}; }
+    catch(e){ return {}; }
+  }
+
+  function loadWeekFromCache(wid){
+    return getWeeksCache()[wid] || null;
+  }
+
+  function saveWeekCache(){
+    const wid = weekId(state.weekStart);
+    const weeks = getWeeksCache();
+    weeks[wid] = { plan: state.weekPlan, extras: state.extras, checked: state.checked };
+    localStorage.setItem(CACHE_WEEKS, JSON.stringify(weeks));
+    localStorage.setItem(CACHE_LASTWEEK, wid);
+  }
+
+  function saveRecipesCache(){
+    localStorage.setItem(CACHE_RECIPES, JSON.stringify(state.recipes));
+  }
 
   // ---------- utils ----------
   function getMonday(d){
@@ -446,16 +533,103 @@
   }
 
   // ---------- API: puente frontend -> backend ----------
-  // La app se sirve desde la URL /exec de Apps Script, así que hablamos con
-  // Code.gs con su puente nativo (google.script.run): mismo origen, sin
-  // CORS ni llamadas anónimas de por medio. Los nombres y el orden de los
-  // argumentos coinciden exactamente con las funciones de Code.gs.
+  // fetch() contra la URL de Apps Script configurada (Ajustes o el valor por
+  // defecto). Funciona igual desde GitHub Pages que desde la propia URL de
+  // Apps Script. POST con Content-Type text/plain para evitar el preflight
+  // CORS (Apps Script no responde bien a peticiones OPTIONS).
+  const API = {
+    get url(){ return state.gsUrl; },
+
+    _errMsg(err){
+      if(err.name === 'AbortError') return 'Tiempo de espera agotado (30s). Comprueba tu conexión.';
+      if(err.message === 'Failed to fetch') return 'No se ha podido conectar. Revisa la URL en Ajustes y tu conexión a internet.';
+      return err.message;
+    },
+
+    async _fetch(url, options){
+      const ctrl = new AbortController();
+      const timer = setTimeout(()=>ctrl.abort(), 30000);
+      try{
+        const res = await fetch(url, Object.assign({ redirect:'follow', credentials:'omit', cache:'no-store', signal: ctrl.signal }, options));
+        clearTimeout(timer);
+        if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        const text = await res.text();
+        let data;
+        try{ data = JSON.parse(text); }
+        catch(e){ throw new Error('Respuesta inesperada del servidor.'); }
+        if(data && data.error) throw new Error(data.error);
+        return data;
+      }catch(err){
+        clearTimeout(timer);
+        throw new Error(this._errMsg(err));
+      }
+    },
+
+    get(action, params){
+      if(!this.url) return Promise.reject(new Error('Falta configurar la URL de Apps Script en Ajustes.'));
+      const url = new URL(this.url);
+      url.searchParams.set('action', action);
+      Object.keys(params || {}).forEach(k=>{
+        if(params[k] !== undefined && params[k] !== null) url.searchParams.set(k, params[k]);
+      });
+      return this._fetch(url.toString());
+    },
+
+    post(action, payload){
+      if(!this.url) return Promise.reject(new Error('Falta configurar la URL de Apps Script en Ajustes.'));
+      return this._fetch(this.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, payload }),
+        keepalive: true
+      });
+    },
+
+    async test(urlOverride){
+      const prevUrl = state.gsUrl;
+      if(urlOverride !== undefined) state.gsUrl = urlOverride;
+      try{
+        await this.get('getRecipes', {});
+        return { ok: true };
+      }catch(err){
+        return { ok: false, error: err.message };
+      }finally{
+        state.gsUrl = prevUrl;
+      }
+    }
+  };
+
+  // Mismo nombre y forma de llamada que antes (gasRun('funcion', ...args)):
+  // así ningún punto del resto del código ha tenido que cambiar.
   function gasRun(fnName, ...args){
-    return new Promise((resolve, reject) => {
-      google.script.run
-        .withSuccessHandler(resolve)
-        .withFailureHandler(reject)[fnName](...args);
-    });
+    switch(fnName){
+      case 'getRecipes':
+        return API.get('getRecipes', {});
+      case 'getWeekPlan':
+        return API.get('getWeekPlan', { weekId: args[0] });
+      case 'getShoppingExtras':
+        return API.get('getShoppingExtras', { weekId: args[0] });
+      case 'getShoppingChecked':
+        return API.get('getShoppingChecked', { weekId: args[0] });
+      case 'saveRecipe':
+        return API.post('saveRecipe', { recipe: args[0] });
+      case 'deleteRecipeById':
+        return API.post('deleteRecipeById', { id: args[0] });
+      case 'setWeekPlanCell':
+        return API.post('setWeekPlanCell', { weekId: args[0], dia: args[1], meal: args[2], recipeId: args[3] });
+      case 'setWeekPlan':
+        return API.post('setWeekPlan', { weekId: args[0], plan: args[1] });
+      case 'addShoppingExtra':
+        return API.post('addShoppingExtra', { weekId: args[0], item: args[1] });
+      case 'deleteShoppingExtra':
+        return API.post('deleteShoppingExtra', { weekId: args[0], extraId: args[1] });
+      case 'setShoppingChecked':
+        return API.post('setShoppingChecked', { weekId: args[0], itemKey: args[1], value: args[2] });
+      case 'clearShoppingChecked':
+        return API.post('clearShoppingChecked', { weekId: args[0] });
+      default:
+        return Promise.reject(new Error('Acción no soportada: ' + fnName));
+    }
   }
 
   function emptyPlan(){
@@ -465,24 +639,71 @@
   }
 
   // ---------- init ----------
+  // Carga instantánea desde la caché local si existe, y sincroniza con
+  // Apps Script en segundo plano; solo bloquea con el overlay de carga si no
+  // hay nada que mostrar todavía (primera vez en este dispositivo).
   async function init(){
+    loadCache();
+    const weekCache = loadWeekFromCache(weekId(state.weekStart));
+    if(weekCache){
+      state.weekPlan = weekCache.plan;
+      state.extras = weekCache.extras;
+      state.checked = weekCache.checked;
+    } else {
+      state.weekPlan = emptyPlan();
+    }
+
+    const hasCache = state.recipes.length > 0 || !!weekCache;
+    if(hasCache){
+      renderAll();
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    if(!state.gsUrl){
+      if(!hasCache){
+        renderAll();
+        document.getElementById('loading').style.display = 'none';
+      }
+      showToast('Configura la URL de Apps Script en Ajustes ⚙️');
+      return;
+    }
+
+    if(hasCache){
+      syncFromNetwork(false);
+      return;
+    }
+
+    try{
+      await syncFromNetwork(true);
+    }catch(e){
+      showRetryError(e);
+      return;
+    }
+    document.getElementById('loading').style.display = 'none';
+  }
+
+  // silent=true: fallo en segundo plano, nos quedamos con lo que había en
+  // caché sin interrumpir a quien esté usando la app.
+  async function syncFromNetwork(throwOnError){
     try{
       await Promise.all([
-        gasRun('getRecipes').then(r => { state.recipes = r; }),
+        gasRun('getRecipes').then(r => { state.recipes = r; saveRecipesCache(); }),
         loadWeekData()
       ]);
       renderAll();
     }catch(e){
-      const loading = document.getElementById('loading');
-      loading.innerHTML = '<div style="text-align:center;">No se ha podido conectar con la hoja de cálculo.<br>' + (e && e.message ? e.message : '') + '</div>'
-        + '<button class="btn btn-primary" id="retryInitBtn" style="display:block; margin:14px auto 0;">Reintentar</button>';
-      document.getElementById('retryInitBtn').addEventListener('click', ()=>{
-        loading.innerHTML = '<div>Cargando tu menú…</div>';
-        init();
-      });
-      return;
+      if(throwOnError) throw e;
     }
-    document.getElementById('loading').style.display = 'none';
+  }
+
+  function showRetryError(e){
+    const loading = document.getElementById('loading');
+    loading.innerHTML = '<div style="text-align:center;">No se ha podido conectar con la hoja de cálculo.<br>' + (e && e.message ? e.message : '') + '</div>'
+      + '<button class="btn btn-primary" id="retryInitBtn" style="display:block; margin:14px auto 0;">Reintentar</button>';
+    document.getElementById('retryInitBtn').addEventListener('click', ()=>{
+      loading.innerHTML = '<div>Cargando tu menú…</div>';
+      init();
+    });
   }
 
   async function loadWeekData(){
@@ -492,9 +713,13 @@
       gasRun('getShoppingExtras', wid),
       gasRun('getShoppingChecked', wid)
     ]);
+    // Si mientras esperábamos la respuesta el usuario ya cambió de semana,
+    // esta respuesta ha quedado obsoleta: la ignoramos.
+    if(weekId(state.weekStart) !== wid) return;
     state.weekPlan = plan;
     state.extras = extras;
     state.checked = checked;
+    saveWeekCache();
   }
 
   function renderAll(){
@@ -568,6 +793,7 @@
         const { day, meal } = e.target.dataset;
         state.weekPlan[day][meal] = e.target.value || null;
         renderShopping();
+        saveWeekCache();
         try{
           await gasRun('setWeekPlanCell', weekId(state.weekStart), day, meal, e.target.value || null);
           showToast('Menú actualizado');
@@ -600,6 +826,7 @@
     state.weekPlan = newPlan;
     renderDays();
     renderShopping();
+    saveWeekCache();
     persistWholeWeekPlan();
   }
 
@@ -668,20 +895,38 @@
     }
   });
 
-  document.getElementById('prevWeek').addEventListener('click', async ()=>{
-    state.weekStart = addDays(state.weekStart, -7);
+  // Si la semana ya está en caché, se renderiza al instante y se refresca
+  // en segundo plano sin overlay; si no, se muestra el overlay como antes.
+  async function changeWeek(deltaDays){
+    state.weekStart = addDays(state.weekStart, deltaDays);
+    const cached = loadWeekFromCache(weekId(state.weekStart));
+    if(cached){
+      state.weekPlan = cached.plan;
+      state.extras = cached.extras;
+      state.checked = cached.checked;
+      renderAll();
+      localStorage.setItem(CACHE_LASTWEEK, weekId(state.weekStart));
+      if(state.gsUrl) loadWeekData().then(renderAll).catch(()=>{});
+      return;
+    }
+    if(!state.gsUrl){
+      state.weekPlan = emptyPlan();
+      renderAll();
+      showToast('Configura la URL de Apps Script en Ajustes ⚙️');
+      return;
+    }
     document.getElementById('loading').style.display='flex';
-    await loadWeekData();
-    renderAll();
+    try{
+      await loadWeekData();
+      renderAll();
+    }catch(e){
+      showToast('No se ha podido cargar esa semana');
+    }
     document.getElementById('loading').style.display='none';
-  });
-  document.getElementById('nextWeek').addEventListener('click', async ()=>{
-    state.weekStart = addDays(state.weekStart, 7);
-    document.getElementById('loading').style.display='flex';
-    await loadWeekData();
-    renderAll();
-    document.getElementById('loading').style.display='none';
-  });
+  }
+
+  document.getElementById('prevWeek').addEventListener('click', ()=> changeWeek(-7));
+  document.getElementById('nextWeek').addEventListener('click', ()=> changeWeek(7));
 
   // ---------- RECETAS ----------
   function catOptionsHtml(selected){
@@ -753,13 +998,14 @@
       recipe = { id: uid(), name, meal, ingredients };
       state.recipes.push(recipe);
     }
+    saveRecipesCache();
+    resetRecipeForm();
+    renderRecipeList();
+    renderDays();
     try{
       await gasRun('saveRecipe', recipe);
       showToast('Receta guardada');
     }catch(err){ showToast('No se ha podido guardar la receta'); }
-    resetRecipeForm();
-    renderRecipeList();
-    renderDays();
   });
 
   document.getElementById('cancelEditBtn').addEventListener('click', resetRecipeForm);
@@ -814,6 +1060,7 @@
     if(!confirm('¿Eliminar esta receta?')) return;
     state.recipes = state.recipes.filter(r=>r.id!==id);
     if(editingRecipeId === id) resetRecipeForm();
+    saveRecipesCache();
     renderRecipeList();
     renderDays();
     renderShopping();
@@ -908,6 +1155,7 @@
         const key = e.target.dataset.key;
         state.checked[key] = e.target.checked;
         e.target.closest('.item-row').classList.toggle('checked', e.target.checked);
+        saveWeekCache();
         try{ await gasRun('setShoppingChecked', weekId(state.weekStart), key, e.target.checked); }
         catch(err){ /* no bloqueamos la UI por un fallo puntual */ }
       });
@@ -918,6 +1166,7 @@
         const wid = weekId(state.weekStart);
         state.extras = state.extras.filter(x=>x.id!==id);
         renderShopping();
+        saveWeekCache();
         try{ await gasRun('deleteShoppingExtra', wid, id); }
         catch(err){ showToast('No se ha podido eliminar'); }
       });
@@ -934,6 +1183,7 @@
     state.extras.push(item);
     nameInput.value = '';
     renderShopping();
+    saveWeekCache();
     try{ await gasRun('addShoppingExtra', wid, item); }
     catch(err){ showToast('No se ha podido guardar el producto'); }
   });
@@ -945,6 +1195,7 @@
     const wid = weekId(state.weekStart);
     state.checked = {};
     renderShopping();
+    saveWeekCache();
     try{
       await gasRun('clearShoppingChecked', wid);
       showToast('Marcados eliminados');
@@ -954,6 +1205,49 @@
   function escapeHtml(str){
     return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
+
+  // ---------- AJUSTES ----------
+  function openSettings(){
+    document.getElementById('gsUrlInput').value = state.gsUrl || '';
+    document.getElementById('gsTestResult').style.display = 'none';
+    document.getElementById('settingsOverlay').classList.add('active');
+  }
+  function closeSettings(){
+    document.getElementById('settingsOverlay').classList.remove('active');
+  }
+
+  document.getElementById('settingsBtn').addEventListener('click', openSettings);
+  document.getElementById('gsCancelBtn').addEventListener('click', closeSettings);
+  document.getElementById('settingsOverlay').addEventListener('click', (e)=>{
+    if(e.target.id === 'settingsOverlay') closeSettings();
+  });
+
+  document.getElementById('gsTestBtn').addEventListener('click', async ()=>{
+    const url = document.getElementById('gsUrlInput').value.trim();
+    const resultEl = document.getElementById('gsTestResult');
+    resultEl.style.display = 'block';
+    resultEl.className = 'test-result';
+    resultEl.textContent = 'Probando…';
+    const r = await API.test(url);
+    resultEl.classList.add(r.ok ? 'ok' : 'err');
+    resultEl.textContent = r.ok ? '✓ Conexión correcta' : ('✕ ' + r.error);
+  });
+
+  document.getElementById('gsSaveBtn').addEventListener('click', ()=>{
+    const url = document.getElementById('gsUrlInput').value.trim();
+    state.gsUrl = url;
+    localStorage.setItem(CACHE_URL, url);
+    closeSettings();
+    showToast('URL guardada');
+    if(!url) return;
+    document.getElementById('loading').style.display = 'flex';
+    syncFromNetwork(true).then(()=>{
+      document.getElementById('loading').style.display = 'none';
+    }).catch(e=>{
+      document.getElementById('loading').style.display = 'none';
+      showToast('No se ha podido conectar: ' + e.message);
+    });
+  });
 
   init();
 })();
