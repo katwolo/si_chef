@@ -87,17 +87,46 @@ function getSheet_(name, headers) {
   return sh;
 }
 
-function sheetToObjects_(sh) {
+// rowFilter (opcional) recibe la fila cruda (array, antes de mapearla a
+// objeto) y decide si se conserva. Filtrar en este punto evita construir un
+// objeto por cada fila del histórico cuando solo hace falta un weekId.
+function sheetToObjects_(sh, rowFilter) {
   var values = sh.getDataRange().getValues();
   if (values.length < 2) return [];
   var headers = values[0];
-  return values.slice(1)
-    .filter(function (r) { return r.join('') !== ''; })
-    .map(function (r) {
-      var obj = {};
-      headers.forEach(function (h, i) { obj[h] = r[i]; });
-      return obj;
-    });
+  var rows = values.slice(1).filter(function (r) { return r.join('') !== ''; });
+  if (rowFilter) rows = rows.filter(rowFilter);
+  return rows.map(function (r) {
+    var obj = {};
+    headers.forEach(function (h, i) { obj[h] = r[i]; });
+    return obj;
+  });
+}
+
+// ---------- caché ----------
+// Caché compartida entre usuarios: recetas y datos semanales cambian poco
+// comparado con las veces que se leen, así que evitamos reabrir la Sheet y
+// releer la hoja entera en cada carga. Se invalida explícitamente en cada
+// escritura correspondiente, así que el TTL solo importa como red de
+// seguridad (máximo que permite Apps Script).
+var CACHE_TTL_ = 21600;
+
+function cacheGet_(key) {
+  var v = CacheService.getScriptCache().get(key);
+  return v ? JSON.parse(v) : null;
+}
+
+function cachePut_(key, value) {
+  try {
+    CacheService.getScriptCache().put(key, JSON.stringify(value), CACHE_TTL_);
+  } catch (e) {
+    // p.ej. valor por encima del límite de tamaño de la caché (100 KB):
+    // mejor servir sin caché que romper la petición entera.
+  }
+}
+
+function cacheRemove_(key) {
+  CacheService.getScriptCache().remove(key);
 }
 
 function withLock_(fn) {
@@ -124,12 +153,16 @@ function normalizeWeekId_(value) {
 // Hoja "Recetas": id | nombre | tipo | ingredientesJSON
 
 function getRecipes() {
+  var cached = cacheGet_('recipes');
+  if (cached) return cached;
   var sh = getSheet_('Recetas', ['id', 'nombre', 'tipo', 'ingredientesJSON']);
-  return sheetToObjects_(sh).map(function (o) {
+  var result = sheetToObjects_(sh).map(function (o) {
     var ingredients = [];
     try { ingredients = JSON.parse(o.ingredientesJSON || '[]'); } catch (e) {}
     return { id: String(o.id), name: o.nombre, meal: o.tipo, ingredients: ingredients };
   });
+  cachePut_('recipes', result);
+  return result;
 }
 
 function saveRecipe(recipe) {
@@ -146,6 +179,7 @@ function saveRecipe(recipe) {
     } else {
       sh.appendRow(rowVals);
     }
+    cacheRemove_('recipes');
     return true;
   });
 }
@@ -157,6 +191,7 @@ function deleteRecipeById(id) {
     for (var i = data.length - 1; i >= 1; i--) {
       if (String(data[i][0]) === String(id)) sh.deleteRow(i + 1);
     }
+    cacheRemove_('recipes');
     return true;
   });
 }
@@ -165,8 +200,11 @@ function deleteRecipeById(id) {
 // Hoja "PlanSemanal": weekId | dia | comidaId | cenaId
 
 function getWeekPlan(weekId) {
+  var key = 'weekplan_' + weekId;
+  var cached = cacheGet_(key);
+  if (cached) return cached;
   var sh = getSheet_('PlanSemanal', ['weekId', 'dia', 'comidaId', 'cenaId']);
-  var rows = sheetToObjects_(sh).filter(function (o) { return normalizeWeekId_(o.weekId) === String(weekId); });
+  var rows = sheetToObjects_(sh, function (r) { return normalizeWeekId_(r[0]) === String(weekId); });
   var plan = {};
   DIAS.forEach(function (d) { plan[d] = { comida: null, cena: null }; });
   rows.forEach(function (r) {
@@ -175,6 +213,7 @@ function getWeekPlan(weekId) {
       plan[r.dia].cena = r.cenaId ? String(r.cenaId) : null;
     }
   });
+  cachePut_(key, plan);
   return plan;
 }
 
@@ -193,6 +232,7 @@ function setWeekPlanCell(weekId, dia, meal, recipeId) {
       var col = meal === 'comida' ? 3 : 4;
       sh.getRange(rowIndex, col).setValue(recipeId || '');
     }
+    cacheRemove_('weekplan_' + weekId);
     return true;
   });
 }
@@ -225,6 +265,7 @@ function setWeekPlan(weekId, plan) {
     if (newRows.length) {
       sh.getRange(sh.getLastRow() + 1, 1, newRows.length, 4).setValues(newRows);
     }
+    cacheRemove_('weekplan_' + weekId);
     return true;
   });
 }
@@ -233,16 +274,21 @@ function setWeekPlan(weekId, plan) {
 // Hoja "ListaExtra": weekId | id | nombre | cantidad | unidad | categoria
 
 function getShoppingExtras(weekId) {
+  var key = 'extras_' + weekId;
+  var cached = cacheGet_(key);
+  if (cached) return cached;
   var sh = getSheet_('ListaExtra', ['weekId', 'id', 'nombre', 'cantidad', 'unidad', 'categoria']);
-  return sheetToObjects_(sh)
-    .filter(function (o) { return normalizeWeekId_(o.weekId) === String(weekId); })
+  var result = sheetToObjects_(sh, function (r) { return normalizeWeekId_(r[0]) === String(weekId); })
     .map(function (o) { return { id: String(o.id), name: o.nombre, qty: o.cantidad, unit: o.unidad, cat: o.categoria }; });
+  cachePut_(key, result);
+  return result;
 }
 
 function addShoppingExtra(weekId, item) {
   return withLock_(function () {
     var sh = getSheet_('ListaExtra', ['weekId', 'id', 'nombre', 'cantidad', 'unidad', 'categoria']);
     sh.appendRow([weekId, item.id, item.name, item.qty || '', item.unit || '', item.cat || 'Otros']);
+    cacheRemove_('extras_' + weekId);
     return true;
   });
 }
@@ -254,6 +300,7 @@ function deleteShoppingExtra(weekId, extraId) {
     for (var i = data.length - 1; i >= 1; i--) {
       if (normalizeWeekId_(data[i][0]) === String(weekId) && String(data[i][1]) === String(extraId)) sh.deleteRow(i + 1);
     }
+    cacheRemove_('extras_' + weekId);
     return true;
   });
 }
@@ -262,10 +309,14 @@ function deleteShoppingExtra(weekId, extraId) {
 // Hoja "ListaMarcados": weekId | itemKey | marcado
 
 function getShoppingChecked(weekId) {
+  var key = 'checked_' + weekId;
+  var cached = cacheGet_(key);
+  if (cached) return cached;
   var sh = getSheet_('ListaMarcados', ['weekId', 'itemKey', 'marcado']);
-  var rows = sheetToObjects_(sh).filter(function (o) { return normalizeWeekId_(o.weekId) === String(weekId); });
+  var rows = sheetToObjects_(sh, function (r) { return normalizeWeekId_(r[0]) === String(weekId); });
   var map = {};
   rows.forEach(function (r) { map[r.itemKey] = (r.marcado === true || r.marcado === 'TRUE' || r.marcado === 'true'); });
+  cachePut_(key, map);
   return map;
 }
 
@@ -282,6 +333,7 @@ function setShoppingChecked(weekId, itemKey, value) {
     } else {
       sh.getRange(rowIndex, 3).setValue(value);
     }
+    cacheRemove_('checked_' + weekId);
     return true;
   });
 }
@@ -293,6 +345,7 @@ function clearShoppingChecked(weekId) {
     for (var i = data.length - 1; i >= 1; i--) {
       if (normalizeWeekId_(data[i][0]) === String(weekId)) sh.deleteRow(i + 1);
     }
+    cacheRemove_('checked_' + weekId);
     return true;
   });
 }
