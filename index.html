@@ -175,6 +175,7 @@
   .btn-danger:hover{ background:var(--red-soft); }
   .btn-sm{ padding:6px 10px; font-size:12px; border-radius:8px; }
   .btn-block{ width:100%; }
+  .btn:disabled{ opacity:.55; cursor:default; }
 
   /* Recipes */
   .section-title{
@@ -371,7 +372,10 @@
 
   <!-- RECETAS -->
   <section id="view-recipes" class="view">
-    <div class="section-title"><h2>Banco de recetas</h2></div>
+    <div class="section-title">
+      <h2>Banco de recetas</h2>
+      <button class="btn btn-ghost btn-sm" id="refreshRecipesBtn" title="Releer la hoja de recetas (por si has añadido o editado alguna directamente en Sheets)">🔄 Actualizar</button>
+    </div>
 
     <div class="recipe-form">
       <div class="field">
@@ -623,6 +627,8 @@
         return API.post('saveRecipe', { recipe: args[0] });
       case 'deleteRecipeById':
         return API.post('deleteRecipeById', { id: args[0] });
+      case 'refreshRecipesCache':
+        return API.post('refreshRecipesCache', {});
       case 'setWeekPlanCell':
         return API.post('setWeekPlanCell', { weekId: args[0], dia: args[1], meal: args[2], recipeId: args[3] });
       case 'setWeekPlan':
@@ -1017,6 +1023,25 @@
   });
 
   document.getElementById('cancelEditBtn').addEventListener('click', resetRecipeForm);
+
+  document.getElementById('refreshRecipesBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('refreshRecipesBtn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '🔄 Actualizando…';
+    try{
+      state.recipes = await gasRun('refreshRecipesCache');
+      saveRecipesCache();
+      renderRecipeList();
+      renderDays();
+      showToast('Recetas actualizadas');
+    }catch(err){
+      showToast('No se ha podido actualizar');
+    }finally{
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
 
   function renderRecipeList(){
     const wrap = document.getElementById('recipeList');
