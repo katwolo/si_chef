@@ -50,6 +50,7 @@ function routeAction_(action, p) {
     case 'getRecipes': return getRecipes();
     case 'saveRecipe': return saveRecipe(p.recipe);
     case 'deleteRecipeById': return deleteRecipeById(p.id);
+    case 'refreshRecipesCache': return refreshRecipesCache();
     case 'getWeekPlan': return getWeekPlan(p.weekId);
     case 'setWeekPlanCell': return setWeekPlanCell(p.weekId, p.dia, p.meal, p.recipeId);
     case 'setWeekPlan': return setWeekPlan(p.weekId, p.plan);
@@ -194,6 +195,14 @@ function deleteRecipeById(id) {
     cacheRemove_('recipes');
     return true;
   });
+}
+
+// Fuerza una relectura de la hoja "Recetas", ignorando la caché de 6h.
+// Necesario porque los edits manuales en la Sheet (fuera de la app) no
+// pasan por saveRecipe/deleteRecipeById, así que no la invalidan solos.
+function refreshRecipesCache() {
+  cacheRemove_('recipes');
+  return getRecipes();
 }
 
 // ---------- PLAN SEMANAL ----------
