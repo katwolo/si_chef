@@ -196,7 +196,7 @@
     display:block; font-size:12px; font-weight:600; color:var(--ink-soft);
     text-transform:uppercase; letter-spacing:.05em; margin-bottom:5px;
   }
-  input[type=text], input[type=number]{
+  input[type=text], input[type=number], textarea{
     width:100%;
     font-family:'Work Sans', sans-serif;
     font-size:14px;
@@ -206,6 +206,7 @@
     background:var(--paper);
     color:var(--ink);
   }
+  textarea{ resize:vertical; min-height:90px; line-height:1.5; }
   .ing-row{ display:grid; grid-template-columns: 2.4fr 0.8fr 0.9fr 1.3fr auto; gap:6px; margin-bottom:6px; align-items:center; }
   .ing-row input, .ing-row select{ font-size:13px; padding:8px; }
   .ing-remove{
@@ -241,6 +242,9 @@
     background:var(--card-2); border:none; border-radius:8px; width:32px; height:32px;
     cursor:pointer; font-size:14px; color:var(--ink-soft);
   }
+  .steps-list{ margin:0; padding-left:20px; font-size:13.5px; color:var(--ink); line-height:1.7; }
+  .steps-list li{ margin-bottom:6px; }
+  .steps-empty{ font-size:13px; color:var(--ink-soft); }
 
   .empty-state{
     text-align:center; padding:36px 20px; color:var(--ink-soft);
@@ -395,6 +399,10 @@
         <div id="ingRows"></div>
         <button type="button" class="add-ing" id="addIngBtn">+ Añadir ingrediente</button>
       </div>
+      <div class="field">
+        <label for="rSteps">Elaboración (opcional)</label>
+        <textarea id="rSteps" placeholder="Un paso por línea, ej:&#10;Pica la cebolla y sofríe&#10;Añade el arroz y el caldo&#10;Cuece 18 minutos"></textarea>
+      </div>
       <div class="form-actions">
         <button class="btn btn-primary btn-block" id="saveRecipeBtn">Guardar receta</button>
         <button class="btn btn-ghost" id="cancelEditBtn" style="display:none;">Cancelar</button>
@@ -447,6 +455,16 @@
     <div class="form-actions" style="margin-top:8px;">
       <button class="btn btn-ghost" id="gsCancelBtn" style="flex:1;">Cancelar</button>
       <button class="btn btn-primary" id="gsSaveBtn" style="flex:1;">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="stepsOverlay">
+  <div class="modal">
+    <h3 id="stepsModalTitle">Elaboración</h3>
+    <div id="stepsModalBody"></div>
+    <div class="form-actions" style="margin-top:14px;">
+      <button class="btn btn-primary btn-block" id="stepsCloseBtn">Cerrar</button>
     </div>
   </div>
 </div>
@@ -993,23 +1011,42 @@
     document.getElementById('rMeal').value = 'comida';
     document.getElementById('ingRows').innerHTML = '';
     addIngRow();
+    document.getElementById('rSteps').value = '';
     editingRecipeId = null;
     document.getElementById('saveRecipeBtn').textContent = 'Guardar receta';
     document.getElementById('cancelEditBtn').style.display = 'none';
   }
+
+  function openStepsModal(recipe){
+    document.getElementById('stepsModalTitle').textContent = recipe.name;
+    const body = document.getElementById('stepsModalBody');
+    const steps = (recipe.steps || '').split('\n').map(s=>s.trim()).filter(Boolean);
+    body.innerHTML = steps.length
+      ? `<ol class="steps-list">${steps.map(s=>`<li>${escapeHtml(s)}</li>`).join('')}</ol>`
+      : `<p class="steps-empty">Todavía no has añadido la elaboración de esta receta. Edítala para añadirla.</p>`;
+    document.getElementById('stepsOverlay').classList.add('active');
+  }
+  function closeStepsModal(){
+    document.getElementById('stepsOverlay').classList.remove('active');
+  }
+  document.getElementById('stepsCloseBtn').addEventListener('click', closeStepsModal);
+  document.getElementById('stepsOverlay').addEventListener('click', (e)=>{
+    if(e.target.id === 'stepsOverlay') closeStepsModal();
+  });
 
   document.getElementById('saveRecipeBtn').addEventListener('click', async ()=>{
     const name = document.getElementById('rName').value.trim();
     if(!name){ showToast('Ponle un nombre al plato'); return; }
     const ingredients = collectIngredients();
     const meal = document.getElementById('rMeal').value;
+    const steps = document.getElementById('rSteps').value.trim();
 
     let recipe;
     if(editingRecipeId){
       recipe = state.recipes.find(x=>x.id===editingRecipeId);
-      recipe.name = name; recipe.meal = meal; recipe.ingredients = ingredients;
+      recipe.name = name; recipe.meal = meal; recipe.ingredients = ingredients; recipe.steps = steps;
     } else {
-      recipe = { id: uid(), name, meal, ingredients };
+      recipe = { id: uid(), name, meal, ingredients, steps };
       state.recipes.push(recipe);
     }
     saveRecipesCache();
@@ -1063,12 +1100,14 @@
             <span class="pill ${r.meal}">${MEAL_LABEL[r.meal]}</span>
           </div>
           <div class="actions">
+            <button class="icon-btn steps-btn" title="Ver elaboración">📖</button>
             <button class="icon-btn edit-btn" title="Editar">✎</button>
             <button class="icon-btn del-btn" title="Eliminar">🗑</button>
           </div>
         </div>
         <div class="ing-list">${ingHtml}</div>
       `;
+      card.querySelector('.steps-btn').addEventListener('click', ()=> openStepsModal(r));
       card.querySelector('.edit-btn').addEventListener('click', ()=> editRecipe(r.id));
       card.querySelector('.del-btn').addEventListener('click', ()=> deleteRecipe(r.id));
       wrap.appendChild(card);
@@ -1083,6 +1122,7 @@
     document.getElementById('rMeal').value = r.meal;
     document.getElementById('ingRows').innerHTML = '';
     (r.ingredients.length ? r.ingredients : [{}]).forEach(i => addIngRow(i));
+    document.getElementById('rSteps').value = r.steps || '';
     document.getElementById('saveRecipeBtn').textContent = 'Guardar cambios';
     document.getElementById('cancelEditBtn').style.display = 'inline-flex';
     document.querySelector('[data-view="recipes"]').click();
