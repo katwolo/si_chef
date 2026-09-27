@@ -251,6 +251,8 @@
   }
   .detail-tabs button.active{ background:var(--pine); color:var(--paper); }
   .recipe-search{ margin-bottom:14px; }
+  .recipe-link{ margin-top:14px; font-size:13px; }
+  .recipe-link a{ color:var(--pine); font-weight:600; }
 
   .empty-state{
     text-align:center; padding:36px 20px; color:var(--ink-soft);
@@ -408,6 +410,10 @@
       <div class="field">
         <label for="rSteps">Elaboración (opcional)</label>
         <textarea id="rSteps" placeholder="Un paso por línea, ej:&#10;Pica la cebolla y sofríe&#10;Añade el arroz y el caldo&#10;Cuece 18 minutos"></textarea>
+      </div>
+      <div class="field">
+        <label for="rLink">Enlace del vídeo o web (opcional)</label>
+        <input type="text" id="rLink" placeholder="https://…">
       </div>
       <div class="form-actions">
         <button class="btn btn-primary btn-block" id="saveRecipeBtn">Guardar receta</button>
@@ -1024,6 +1030,7 @@
     document.getElementById('ingRows').innerHTML = '';
     addIngRow();
     document.getElementById('rSteps').value = '';
+    document.getElementById('rLink').value = '';
     editingRecipeId = null;
     document.getElementById('saveRecipeBtn').textContent = 'Guardar receta';
     document.getElementById('cancelEditBtn').style.display = 'none';
@@ -1038,6 +1045,13 @@
 
   let detailsRecipe = null;
 
+  function recipeLinkHtml(link){
+    const raw = (link || '').trim();
+    if(!raw || /^(javascript|data|vbscript):/i.test(raw)) return '';
+    const href = /^https?:\/\//i.test(raw) ? raw : ('https://' + raw);
+    return `<p class="recipe-link"><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">🔗 Ver receta original</a></p>`;
+  }
+
   function renderDetailsTab(tab){
     document.querySelectorAll('#detailsTabs button').forEach(b=>{
       b.classList.toggle('active', b.dataset.tab === tab);
@@ -1046,9 +1060,10 @@
     const r = detailsRecipe;
     if(tab === 'steps'){
       const steps = (r.steps || '').split(STEP_SPLIT_RE).map(s=>s.trim()).filter(Boolean);
-      body.innerHTML = steps.length
+      const stepsHtml = steps.length
         ? `<ol class="steps-list">${steps.map(s=>`<li>${escapeHtml(s)}</li>`).join('')}</ol>`
         : `<p class="steps-empty">Todavía no has añadido la elaboración de esta receta. Edítala para añadirla.</p>`;
+      body.innerHTML = stepsHtml + recipeLinkHtml(r.link);
     } else {
       body.innerHTML = r.ingredients.length
         ? `<ul class="steps-list">${r.ingredients.map(i=>`<li>${escapeHtml(i.name)}${i.qty ? ` — ${escapeHtml(String(i.qty))}${escapeHtml(i.unit||'')}` : ''}</li>`).join('')}</ul>`
@@ -1079,13 +1094,14 @@
     const ingredients = collectIngredients();
     const meal = document.getElementById('rMeal').value;
     const steps = document.getElementById('rSteps').value.trim();
+    const link = document.getElementById('rLink').value.trim();
 
     let recipe;
     if(editingRecipeId){
       recipe = state.recipes.find(x=>x.id===editingRecipeId);
-      recipe.name = name; recipe.meal = meal; recipe.ingredients = ingredients; recipe.steps = steps;
+      recipe.name = name; recipe.meal = meal; recipe.ingredients = ingredients; recipe.steps = steps; recipe.link = link;
     } else {
-      recipe = { id: uid(), name, meal, ingredients, steps };
+      recipe = { id: uid(), name, meal, ingredients, steps, link };
       state.recipes.push(recipe);
     }
     saveRecipesCache();
@@ -1175,6 +1191,7 @@
     document.getElementById('ingRows').innerHTML = '';
     (r.ingredients.length ? r.ingredients : [{}]).forEach(i => addIngRow(i));
     document.getElementById('rSteps').value = r.steps || '';
+    document.getElementById('rLink').value = r.link || '';
     document.getElementById('saveRecipeBtn').textContent = 'Guardar cambios';
     document.getElementById('cancelEditBtn').style.display = 'inline-flex';
     document.querySelector('[data-view="recipes"]').click();
