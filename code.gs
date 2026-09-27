@@ -151,16 +151,19 @@ function normalizeWeekId_(value) {
 }
 
 // ---------- RECETAS ----------
-// Hoja "Recetas": id | nombre | tipo | ingredientesJSON
+// Hoja "Recetas": id | nombre | tipo | ingredientesJSON | elaboracion
+// (elaboracion es texto libre, un paso por línea; en hojas creadas antes de
+// añadir esta columna, hay que añadir la cabecera "elaboracion" a mano en la
+// celda E1 la primera vez — este código no reescribe cabeceras existentes.)
 
 function getRecipes() {
   var cached = cacheGet_('recipes');
   if (cached) return cached;
-  var sh = getSheet_('Recetas', ['id', 'nombre', 'tipo', 'ingredientesJSON']);
+  var sh = getSheet_('Recetas', ['id', 'nombre', 'tipo', 'ingredientesJSON', 'elaboracion']);
   var result = sheetToObjects_(sh).map(function (o) {
     var ingredients = [];
     try { ingredients = JSON.parse(o.ingredientesJSON || '[]'); } catch (e) {}
-    return { id: String(o.id), name: o.nombre, meal: o.tipo, ingredients: ingredients };
+    return { id: String(o.id), name: o.nombre, meal: o.tipo, ingredients: ingredients, steps: o.elaboracion || '' };
   });
   cachePut_('recipes', result);
   return result;
@@ -168,15 +171,15 @@ function getRecipes() {
 
 function saveRecipe(recipe) {
   return withLock_(function () {
-    var sh = getSheet_('Recetas', ['id', 'nombre', 'tipo', 'ingredientesJSON']);
+    var sh = getSheet_('Recetas', ['id', 'nombre', 'tipo', 'ingredientesJSON', 'elaboracion']);
     var data = sh.getDataRange().getValues();
     var rowIndex = -1;
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][0]) === String(recipe.id)) { rowIndex = i + 1; break; }
     }
-    var rowVals = [recipe.id, recipe.name, recipe.meal, JSON.stringify(recipe.ingredients || [])];
+    var rowVals = [recipe.id, recipe.name, recipe.meal, JSON.stringify(recipe.ingredients || []), recipe.steps || ''];
     if (rowIndex > -1) {
-      sh.getRange(rowIndex, 1, 1, 4).setValues([rowVals]);
+      sh.getRange(rowIndex, 1, 1, 5).setValues([rowVals]);
     } else {
       sh.appendRow(rowVals);
     }
@@ -187,7 +190,7 @@ function saveRecipe(recipe) {
 
 function deleteRecipeById(id) {
   return withLock_(function () {
-    var sh = getSheet_('Recetas', ['id', 'nombre', 'tipo', 'ingredientesJSON']);
+    var sh = getSheet_('Recetas', ['id', 'nombre', 'tipo', 'ingredientesJSON', 'elaboracion']);
     var data = sh.getDataRange().getValues();
     for (var i = data.length - 1; i >= 1; i--) {
       if (String(data[i][0]) === String(id)) sh.deleteRow(i + 1);
