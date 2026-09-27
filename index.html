@@ -250,6 +250,7 @@
     color:var(--ink-soft); cursor:pointer;
   }
   .detail-tabs button.active{ background:var(--pine); color:var(--paper); }
+  .recipe-search{ margin-bottom:14px; }
 
   .empty-state{
     text-align:center; padding:36px 20px; color:var(--ink-soft);
@@ -414,6 +415,7 @@
       </div>
     </div>
 
+    <input type="text" id="recipeSearch" class="recipe-search" placeholder="🔍 Buscar receta...">
     <div id="recipeList"></div>
   </section>
 
@@ -496,6 +498,7 @@
   };
   let editingRecipeId = null;
   let ingRowCount = 0;
+  let recipeSearchQuery = '';
 
   // URL de Apps Script que ya funciona hoy: sirve como valor por defecto la
   // primera vez que se abre la app en un dispositivo, antes de que el
@@ -1116,6 +1119,15 @@
     }
   });
 
+  document.getElementById('recipeSearch').addEventListener('input', (e)=>{
+    recipeSearchQuery = e.target.value;
+    renderRecipeList();
+  });
+
+  function normalizeSearch(str){
+    return (str || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  }
+
   function renderRecipeList(){
     const wrap = document.getElementById('recipeList');
     wrap.innerHTML = '';
@@ -1123,7 +1135,15 @@
       wrap.innerHTML = `<div class="empty-state"><div class="big">📋</div>Aún no tienes recetas guardadas.<br>Añade la primera arriba.</div>`;
       return;
     }
-    state.recipes.slice().sort((a,b)=>a.name.localeCompare(b.name,'es')).forEach(r=>{
+    const query = normalizeSearch(recipeSearchQuery);
+    const filtered = query
+      ? state.recipes.filter(r => normalizeSearch(r.name).includes(query))
+      : state.recipes;
+    if(filtered.length === 0){
+      wrap.innerHTML = `<div class="empty-state"><div class="big">🔍</div>No hay recetas que coincidan con «${escapeHtml(recipeSearchQuery)}».</div>`;
+      return;
+    }
+    filtered.slice().sort((a,b)=>a.name.localeCompare(b.name,'es')).forEach(r=>{
       const card = document.createElement('div');
       card.className = 'recipe-card';
       card.innerHTML = `
