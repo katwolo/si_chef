@@ -235,6 +235,7 @@
   .pill.comida{ background:#E8EFE6; color:var(--pine); }
   .pill.cena{ background:#F1E3D3; color:var(--mustard-dark); }
   .pill.ambas{ background:#EAE3F2; color:#6A4E9A; }
+  .pill.reposteria{ background:var(--red-soft); color:var(--red); }
   .recipe-card .actions{ display:flex; gap:6px; flex-shrink:0; }
   .icon-btn{
     background:var(--card-2); border:none; border-radius:8px; width:32px; height:32px;
@@ -400,6 +401,7 @@
           <option value="comida">Comida</option>
           <option value="cena">Cena</option>
           <option value="ambas">Comida o cena</option>
+          <option value="reposteria">Repostería</option>
         </select>
       </div>
       <div class="field">
@@ -492,7 +494,7 @@
 
   const DAYS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
   const CATEGORIES = ['Fruta y verdura','Carne y pescado','Lácteos y huevos','Pan y cereales','Despensa','Congelados','Otros'];
-  const MEAL_LABEL = { comida:'Comida', cena:'Cena', ambas:'Comida o cena' };
+  const MEAL_LABEL = { comida:'Comida', cena:'Cena', ambas:'Comida o cena', reposteria:'Repostería' };
 
   let state = {
     recipes: [],
