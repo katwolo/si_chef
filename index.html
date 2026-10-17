@@ -141,6 +141,7 @@
   }
   select{
     flex:1;
+    min-width:0;
     font-family:'Work Sans', sans-serif;
     font-size:14px;
     padding:9px 10px;
@@ -150,6 +151,9 @@
     color:var(--ink);
     appearance:none;
     -webkit-appearance:none;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
   }
   select:focus, input:focus, textarea:focus, button:focus-visible{
     outline:2px solid var(--mustard);
